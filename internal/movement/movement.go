@@ -8,6 +8,7 @@ import (
 	"packman/internal/gameboard"
 	"packman/internal/score"
 	config "packman/internal/utils"
+	"sync"
 	"time"
 )
 
@@ -41,56 +42,86 @@ func convertInput(buffer []byte, cnt int) string {
 	}
 	return ""
 }
-func ProcessMoveAction(game *config.Board, input string, characterType string, gameStatus *config.GameStatus) (*config.Board, *config.GameStatus) {
-	if characterType == "packman" {
+func ProcessMoveAction(game *config.Board, input string, gameStatus *config.GameStatus) (*config.Board, *config.GameStatus) {
+	pPos := &game.Packman.Position
+	pPos.Row, pPos.Col = getNewPos(game, pPos.PrevRow, pPos.PrevCol, input)
+	if CheckCollision(game, pPos.Row, pPos.Col, "#") || CheckCollision(game, pPos.Row, pPos.Col, "-") {
+		return game, gameStatus
+	}
+	if CheckCollision(game, pPos.Row, pPos.Col, "G") {
+		if game.Ghosts[0].Status != config.GhostStatusNormal {
+			index := whichGhost(game.Ghosts, pPos.Row, pPos.Col)
+			moveGhostToStartingPos(&game.Ghosts[index])
 
-		pPos := &game.Packman.Position
-		pPos.Row, pPos.Col = getNewPos(game, pPos.PrevRow, pPos.PrevCol, input)
-		if CheckCollision(game, pPos.Row, pPos.Col, "#") {
-			return game, gameStatus
-		}
-		if CheckCollision(game, pPos.Row, pPos.Col, "-") {
-			return game, gameStatus
-		}
-		if CheckCollision(game, pPos.Row, pPos.Col, "G") {
+		} else {
 			MoveToStartingPos(pPos)
 			score.MinusLive(gameStatus)
-			game.Maze[pPos.PrevRow] = gameboard.ClearSpace(game.Maze[pPos.PrevRow], pPos.PrevCol)
 		}
-		if CheckCollision(game, pPos.Row, pPos.Col, "X") {
-			score.ScoreCandy(gameStatus)
-			game.Maze[pPos.PrevRow] = gameboard.ClearSpace(game.Maze[pPos.PrevRow], pPos.PrevCol)
-		}
-		if CheckCollision(game, pPos.Row, pPos.Col, ".") {
-			gameStatus.DotsLeft--
-			score.ScoreUp(gameStatus)
-			game.Maze[pPos.PrevRow] = gameboard.ClearSpace(game.Maze[pPos.PrevRow], pPos.PrevCol)
-		}
-		if CheckCollision(game, pPos.Row, pPos.Col, " ") {
-			game.Maze[pPos.PrevRow] = gameboard.ClearSpace(game.Maze[pPos.PrevRow], pPos.PrevCol)
-		}
-		pPos.PrevRow, pPos.PrevCol = pPos.Row, pPos.Col
-		game.Maze[pPos.Row] = changeCharacter(game.Maze[pPos.Row], pPos.Col, "P")
-	}
-	if characterType == "ghost" {
-		gPos := &game.Ghosts[1].Position
-		gPos.Row, gPos.Col = getNewPos(game, gPos.PrevRow, gPos.PrevCol, input)
-		if CheckCollision(game, gPos.Row, gPos.Col, "#") {
-			return game, gameStatus
-		}
-		if CheckCollision(game, gPos.Row, gPos.Col, "P") {
-			MoveToStartingPos(&game.Packman.Position)
-			score.MinusLive(gameStatus)
-		}
-		game.Maze[gPos.PrevRow] = changeCharacter(game.Maze[gPos.PrevRow], gPos.PrevCol, "G")
-		gPos.PrevRow, gPos.PrevCol = gPos.Row, gPos.Col
-		game.Maze[gPos.Row] = changeCharacter(game.Maze[gPos.Row], gPos.Col, "G")
 
 	}
+	if CheckCollision(game, pPos.Row, pPos.Col, "X") {
+		score.ScoreCandy(gameStatus)
+		go processPill(game)
+	}
+	if CheckCollision(game, pPos.Row, pPos.Col, ".") {
+		gameStatus.DotsLeft--
+		score.ScoreUp(gameStatus)
+	}
+	if CheckCollision(game, pPos.Row, pPos.Col, " ") {
+	}
+	game.Maze[pPos.PrevRow] = gameboard.ClearSpace(game.Maze[pPos.PrevRow], pPos.PrevCol)
+	pPos.PrevRow, pPos.PrevCol = pPos.Row, pPos.Col
+	game.Maze[pPos.Row] = changeCharacter(game.Maze[pPos.Row], pPos.Col, "P")
 
 	return game, gameStatus
 }
+func ProcessGhostAction(game *config.Board, input string, ghostNum int, gameStatus *config.GameStatus) (*config.Board, *config.GameStatus) {
+	var m sync.Mutex
+	m.Lock()
+	defer m.Unlock()
+	stepOn := game.Ghosts[ghostNum].StepOn
+	gPos := &game.Ghosts[ghostNum].Position
+	gPos.Row, gPos.Col = getNewPos(game, gPos.PrevRow, gPos.PrevCol, input)
+	if CheckCollision(game, gPos.Row, gPos.Col, "#") {
+		return game, gameStatus
+	}
+	if CheckCollision(game, gPos.Row, gPos.Col, "G") {
+		return game, gameStatus
+	}
 
+	if stepOn == "." || stepOn == "X" || stepOn == " " || stepOn == "-" {
+		game.Maze[gPos.PrevRow] = changeCharacter(game.Maze[gPos.PrevRow], gPos.PrevCol, stepOn)
+		game.Ghosts[ghostNum].StepOn = ""
+	}
+	if CheckCollision(game, gPos.Row, gPos.Col, "P") {
+		if game.Ghosts[ghostNum].Status != config.GhostStatusNormal {
+			moveGhostToStartingPos(&game.Ghosts[ghostNum])
+			return game, gameStatus
+		} else {
+			MoveToStartingPos(&game.Packman.Position)
+			game.Ghosts[ghostNum].StepOn = " "
+			score.MinusLive(gameStatus)
+		}
+
+	}
+	if CheckCollision(game, gPos.Row, gPos.Col, ".") {
+		game.Ghosts[ghostNum].StepOn = "."
+	}
+	if CheckCollision(game, gPos.Row, gPos.Col, "X") {
+		game.Ghosts[ghostNum].StepOn = "X"
+	}
+	if CheckCollision(game, gPos.Row, gPos.Col, " ") {
+		game.Ghosts[ghostNum].StepOn = " "
+	}
+	if CheckCollision(game, gPos.Row, gPos.Col, "-") {
+		game.Ghosts[ghostNum].StepOn = "-"
+	}
+
+	gPos.PrevRow, gPos.PrevCol = gPos.Row, gPos.Col
+	game.Maze[gPos.Row] = changeCharacter(game.Maze[gPos.Row], gPos.Col, "G")
+
+	return game, gameStatus
+}
 func CheckCollision(game *config.Board, currentRow, currentCol int, collisionCharacter string) bool {
 	rowStr := game.Maze[currentRow]
 	character := string(rowStr[currentCol])
@@ -121,18 +152,18 @@ func GetCharacterDirection() (string, error) {
 	return input, nil
 }
 
-func MoveGhosts(game *config.Board, gameStatus *config.GameStatus) {
+func MoveGhosts(game *config.Board, gameStatus *config.GameStatus, ghostNum int) {
 	for {
 		select {
-		case <-time.After(200 * time.Millisecond):
-			ProcessMoveAction(game, RandomDirection(), "ghost", gameStatus)
+		case <-time.After(100 * time.Millisecond):
+			ProcessGhostAction(game, RandomDirection(), ghostNum, gameStatus)
 		}
 	}
 
 }
 
 func MoveToStartingPos(pPos *config.CharacterPosition) {
-	pPos.Row, pPos.Col = config.StartingRow, config.StartingCol
+	pPos.PrevRow, pPos.PrevCol = config.StartingRow, config.StartingCol
 }
 
 func getNewPos(game *config.Board, oldRow, oldCol int, dir string) (newRow, newCol int) {
@@ -174,4 +205,45 @@ func changeCharacter(rowStr string, col int, characterType string) string {
 	row := []byte(rowStr)
 	row[col] = character[0]
 	return string(row)
+}
+
+func processPill(game *config.Board) {
+	var m sync.Mutex
+	m.Lock()
+	game.Ghosts = updateGhosts(game.Ghosts, config.GhostStatusBlue)
+	if game.PillTimer != nil {
+		game.PillTimer.Stop()
+	}
+	game.PillTimer = time.NewTimer(time.Second * config.PillDuration)
+	m.Unlock()
+	<-game.PillTimer.C
+	m.Lock()
+	game.PillTimer.Stop()
+	game.Ghosts = updateGhosts(game.Ghosts, config.GhostStatusNormal)
+	m.Unlock()
+}
+
+func moveGhostToStartingPos(g *config.Ghost) {
+	g.Position.PrevRow, g.Position.PrevCol = config.StartingGRow, config.StartingGCol
+}
+
+func updateGhosts(g []config.Ghost, status string) []config.Ghost {
+	var m sync.Mutex
+	m.Lock()
+	defer m.Unlock()
+	for i, _ := range g {
+		g[i].Status = status
+
+	}
+	return g
+}
+
+func whichGhost(ghosts []config.Ghost, row, col int) int {
+	var index int
+	for i, ghost := range ghosts {
+		if ghost.Position.Col == col && ghost.Position.Row == row {
+			return i
+		}
+	}
+	return index
 }

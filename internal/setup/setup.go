@@ -1,6 +1,7 @@
 package setup
 
 import (
+	"fmt"
 	"os"
 	"os/signal"
 	"packman/internal/gameboard"
@@ -23,21 +24,24 @@ func StartGame() {
 	watchForSignal(gameStatus)
 	go watchForUserAction(input, game, gameStatus)
 	for i := 0; i < len(game.Ghosts); i++ {
-		// go movement.MoveGhosts(game, gameStatus)
+		go movement.MoveGhosts(game, gameStatus, i)
 	}
 	for {
 		select {
 		case inp := <-input:
-			movement.ProcessMoveAction(game, inp, "packman", gameStatus)
-
+			movement.ProcessMoveAction(game, inp, gameStatus)
 			if inp == "ESC" {
 				gameStatus.On = false
 			}
+		default:
+		}
+		select {
 		case <-time.After(100 * time.Millisecond):
 			gameboard.PrintScreen(game)
-			if gameStatus.On == false || gameStatus.Lives == 0 || gameStatus.DotsLeft == 0 {
-				break
-			}
+			fmt.Println("Score: ", gameStatus.Score, " Lives: ", gameStatus.Lives)
+		}
+		if gameStatus.On == false || gameStatus.Lives == 0 || gameStatus.DotsLeft == 0 {
+			break
 		}
 
 	}

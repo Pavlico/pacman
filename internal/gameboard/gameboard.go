@@ -91,6 +91,7 @@ func LoadCharacters(bg *config.Board) {
 						Row: row, Col: col, PrevRow: row, PrevCol: col,
 					},
 					Status: config.GhostStatusNormal,
+					StepOn: " ",
 				})
 			case '.':
 				bg.DotsNum++

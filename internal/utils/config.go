@@ -1,5 +1,7 @@
 package config
 
+import "time"
+
 type CharacterPosition struct {
 	Row     int
 	Col     int
@@ -12,14 +14,16 @@ type Packman struct {
 
 type Ghost struct {
 	Position CharacterPosition
+	StepOn   string
 	Status   string
 }
 
 type Board struct {
-	Maze    []string
-	Ghosts  []Ghost
-	Packman Packman
-	DotsNum int
+	Maze      []string
+	Ghosts    []Ghost
+	Packman   Packman
+	DotsNum   int
+	PillTimer *time.Timer
 }
 
 type GameStatus struct {
@@ -30,5 +34,9 @@ type GameStatus struct {
 }
 
 const GhostStatusNormal = "normal"
+const GhostStatusBlue = "blue"
 const StartingRow = 14
 const StartingCol = 13
+const StartingGRow = 11
+const StartingGCol = 13
+const PillDuration = 10
